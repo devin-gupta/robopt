@@ -62,29 +62,30 @@ class BiddingEnv(gym.Env):
 
         # action space is discrete between 0 and 10 for each robot
         self.action_space = spaces.Box(
-            low=0,
-            high=10,
+            low=-1.0,
+            high=1.0,
             shape=(self.n_robots, self.n_tasks),
-            dtype=np.int8
+            dtype=np.float32
         )
 
         # observation space is a dictionary of dictionaries, where each dictionary has two keys: self_state and bidding_matrix
-        self.observation_space = spaces.Dict({
-            f"robot_{i}": spaces.Dict({
-                'self_state': spaces.Box(
-                    # x, y, type
-                    low=np.array([0, 0, 0], dtype=np.int8),
-                    high=np.array([self.grid_size[0], self.grid_size[1], 2], dtype=np.int8),
-                    dtype=np.int8
-                ),
-                'bidding_matrix': spaces.Box(
-                    low=0,
-                    high=10,
-                    shape=(self.n_robots, self.n_tasks),
-                    dtype=np.int8
-                )
-            }) for i in range(self.n_robots)
-        })
+        observation_space_dict = {}
+
+        for i in range(self.n_robots):
+            observation_space_dict[f"robot_{i}_self_state"] = spaces.Box(
+                low=np.array([0, 0, 0], dtype=np.float32),
+                high=np.array([self.grid_size[0], self.grid_size[1], 2], dtype=np.float32),
+                dtype=np.float32
+            )
+            observation_space_dict[f"robot_{i}_bidding_matrix"] = spaces.Box(
+                low=0.0,
+                high=10.0,
+                shape=(self.n_robots, self.n_tasks),
+                dtype=np.float32
+            )
+
+        # Assign the observation space
+        self.observation_space = spaces.Dict(observation_space_dict)
 
     def get_cost(self, robot, task):
         distance = np.linalg.norm(np.array([robot.x, robot.y]) - np.array([task.x, task.y]))
@@ -92,32 +93,34 @@ class BiddingEnv(gym.Env):
         return distance * 0.5 * (1 + type_match)
     
     def observe(self):
+        observation = {}
 
-        observation = {
-            f"robot_{i}": {
-                'self_state': np.array([
-                    robot.x,   # Existing x-coordinate
-                    robot.y,   # Existing y-coordinate
-                    robot.type # Existing type
-                ], dtype=np.int8),
-                'bidding_matrix': self.bidding_matrix  # Use the existing bidding matrix
-            }
-            for i, robot in enumerate(self.robots)
-        }
+        for i, robot in enumerate(self.robots):
+            # Add self_state for the robot
+            observation[f"robot_{i}_self_state"] = np.array([
+                robot.x,   # Existing x-coordinate
+                robot.y,   # Existing y-coordinate
+                robot.type # Existing type
+            ], dtype=np.float32)
+
+            # Add bidding_matrix for the robot
+            observation[f"robot_{i}_bidding_matrix"] = self.bidding_matrix.astype(np.float32)
 
         return observation
 
     def step(self, action):
-        # action is the bidding matrix
-        self.bidding_matrix = action 
+        # Scale action from [-1, 1] to [0, 10]
+        scaled_action = (action + 1) * 5  # Maps normalized range [-1, 1] to [0, 10]
+        self.bidding_matrix = scaled_action
 
+        # Get updated observation
         observation = self.observe()
 
+        # Increment step count
         self.current_step += 1
-        done = self.current_step >= self.max_step 
+        done = self.current_step >= self.max_step
 
-        # define reward function. 
-        # for each task, if it is completed, add the prize to the reward
+        # Calculate reward
         reward = 0
         for task_index, task in enumerate(self.tasks):
             max_bid = 0
@@ -130,50 +133,75 @@ class BiddingEnv(gym.Env):
             if max_bid_robot_index is not None:
                 reward += task.prize - self.get_cost(self.robots[max_bid_robot_index], task)
 
-        # Scale reward
+        # Scale reward based on progress
+        total_possible_reward = len(self.tasks) * self.max_step
         if not done:
-            reward = reward / (len(self.tasks) * self.max_step)
+            reward /= total_possible_reward
         else:
-            reward = self.final_multiplier * reward / (len(self.tasks) * self.max_step)
+            reward = self.final_multiplier * reward / total_possible_reward
 
+        # Additional info dictionary (can be expanded as needed)
         info = {}
 
+        # Truncated is False since termination is based only on `done`
         truncated = False
 
         return observation, reward, done, truncated, info
 
-    def reset(self, seed=None, options=None):
 
+    def reset(self, seed=None, options=None):
+        # Seed the environment for reproducibility
         if seed is not None:
+            super().reset(seed=seed)  # Ensures compatibility with Gym's seeding
             np.random.seed(seed)
 
         # Randomly initialize robots and tasks
         self.robots = [self.Robot(self.grid_size) for _ in range(self.n_robots)]
         self.tasks = [self.Task(self.grid_size) for _ in range(self.n_tasks)]
 
-        # Reset bidding matrix
-        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int8)
+        # Reset the bidding matrix
+        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.float32)
 
+        # Reset step counter
         self.current_step = 0
-        
+
+        # Get initial observation
         observation = self.observe()
+
+        # Return observation and empty info dictionary
         return observation, {}
 
     def render(self, mode='verbose'):
-        if mode == 'verbose':
-            # clear_output(wait=True)
-            print(f"Step: {self.current_step}")
-            print(*[f"{robot}\n" for robot in self.robots], sep='')
-            print(*[f"{task}\n" for task in self.tasks], sep='')
-            print(
-                f"Bidding Matrix: \n"
-                f"{tabulate(self.bidding_matrix, headers=[f'task {i+1}' for i in range(self.n_tasks)], tablefmt='fancy_grid')}"
-            )
 
-        if mode == 'bids':
+        if mode == 'verbose':
+            # Clear output if running in an interactive environment
+            # Uncomment if using Jupyter Notebook or similar:
+            # clear_output(wait=True)
+            
+            print(f"Step: {self.current_step}")
+            print("\nRobots:")
+            for i, robot in enumerate(self.robots):
+                print(f"  Robot {i + 1}: {robot}")
+            print("\nTasks:")
+            for i, task in enumerate(self.tasks):
+                print(f"  Task {i + 1}: {task}")
+            print("\nBidding Matrix:")
             print(
-                f"Bidding Matrix: \n"
-                f"{tabulate(self.bidding_matrix, headers=[f'task {i+1}' for i in range(self.n_tasks)], tablefmt='fancy_grid')}"
+                tabulate(
+                    self.bidding_matrix, 
+                    headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
+                    tablefmt='fancy_grid'
+                )
+            )
+        
+        elif mode == 'bids':
+            print("\nBidding Matrix:")
+            print(
+                tabulate(
+                    self.bidding_matrix, 
+                    headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
+                    tablefmt='fancy_grid'
+                )
             )
         
         elif mode == 'plot':
@@ -208,6 +236,12 @@ class BiddingEnv(gym.Env):
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
             plt.pause(0.1)
+
+        elif mode == None:
+            pass
+
+        else:
+            raise ValueError(f"Unsupported render mode: {mode}. Choose from 'verbose', 'bids' or 'plot'.")
 
     def close(self):
         if self.fig is not None:
