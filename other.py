@@ -95,6 +95,7 @@ def create_robot_task_matrix(robots, tasks):
     return matrix
 
 def get_allocations(ExBids, ExCare):
+
 # ExCare = [[5, 6, 7, 8]]
 
 
