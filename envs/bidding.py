@@ -32,7 +32,7 @@ class BiddingEnv(gym.Env):
         def __init__(self, grid_size):
             self.x = np.random.randint(0, grid_size[0])
             self.y = np.random.randint(0, grid_size[1])
-            self.prize = np.random.randint(1, 4)
+            self.prize = np.random.randint(1, 100)
             self.type = np.random.choice([0, 1, 2]) # corresponding to ('manipulation', 'transport', 'specialty')
 
         def __str__(self):
@@ -40,7 +40,7 @@ class BiddingEnv(gym.Env):
             return f"Task at ({self.x}, {self.y}) with prize {self.prize} and type {task_type[self.type]}"
 
 
-    def __init__(self):
+    def __init__(self, render_mode=None):
         super(BiddingEnv, self).__init__()
 
         self.grid_size = (10, 10)
@@ -60,6 +60,8 @@ class BiddingEnv(gym.Env):
 
         self.final_multiplier = 100
 
+        self.render_mode = render_mode
+
         # action space is discrete between 0 and 10 for each robot
         self.action_space = spaces.Box(
             low=-1.0,
@@ -78,8 +80,8 @@ class BiddingEnv(gym.Env):
                 dtype=np.float32
             )
             observation_space_dict[f"robot_{i}_bidding_matrix"] = spaces.Box(
-                low=0.0,
-                high=10.0,
+                low=-1.0,
+                high=1.0,
                 shape=(self.n_robots, self.n_tasks),
                 dtype=np.float32
             )
@@ -89,8 +91,10 @@ class BiddingEnv(gym.Env):
 
     def get_cost(self, robot, task):
         distance = np.linalg.norm(np.array([robot.x, robot.y]) - np.array([task.x, task.y]))
-        type_match = 1 if robot.type == task.type else 0
+        type_match = 0 if round(robot.type) == round(task.type) else 1
         return distance * 0.5 * (1 + type_match)
+        # distance (max of 17.1, min of 0) * 0.5 * 33% * (1) + 66% (2)
+        # 14 * 0.5 * (1.6) = 9.5
     
     def observe(self):
         observation = {}
@@ -132,6 +136,7 @@ class BiddingEnv(gym.Env):
 
             if max_bid_robot_index is not None:
                 reward += task.prize - self.get_cost(self.robots[max_bid_robot_index], task)
+                # reward += E[0, 100] - 9.5
 
         # Scale reward based on progress
         total_possible_reward = len(self.tasks) * self.max_step
@@ -171,13 +176,21 @@ class BiddingEnv(gym.Env):
         # Return observation and empty info dictionary
         return observation, {}
 
-    def render(self, mode='verbose'):
+    def render(self, mode=None):
+        """
+        Render the environment state.
+        
+        Supported render modes:
+        - None: No rendering
+        - 'human': Text-based verbose output
+        - 'rgb_array': Matplotlib plot as an RGB array
+        - 'ansi': Tabular representation of bids
+        """
+        if mode is None:
+            return
 
-        if mode == 'verbose':
-            # Clear output if running in an interactive environment
-            # Uncomment if using Jupyter Notebook or similar:
-            # clear_output(wait=True)
-            
+        if mode == 'human':
+            # Verbose text output
             print(f"Step: {self.current_step}")
             print("\nRobots:")
             for i, robot in enumerate(self.robots):
@@ -193,18 +206,10 @@ class BiddingEnv(gym.Env):
                     tablefmt='fancy_grid'
                 )
             )
-        
-        elif mode == 'bids':
-            print("\nBidding Matrix:")
-            print(
-                tabulate(
-                    self.bidding_matrix, 
-                    headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
-                    tablefmt='fancy_grid'
-                )
-            )
-        
-        elif mode == 'plot':
+            return None
+
+        elif mode == 'rgb_array':
+            # Create a plot and return it as an RGB array
             if self.fig is None or self.ax is None:
                 self.fig, self.ax = plt.subplots(figsize=(8, 8))
                 self.ax.set_xlim(0, self.grid_size[0])
@@ -229,20 +234,32 @@ class BiddingEnv(gym.Env):
             # Draw tasks
             for task in self.tasks:
                 circle = Circle((task.x, task.y), 0.5,
-                              facecolor='blue', edgecolor='blue')
+                            facecolor='blue', edgecolor='blue')
                 self.ax.add_patch(circle)
                 self.task_patches.append(circle)
 
+            # Convert plot to RGB array
             self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
-            plt.pause(0.1)
+            image = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype='uint8')
+            image = image.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
+            
+            plt.close(self.fig)  # Close the figure to free up memory
+            self.fig = None
+            self.ax = None
+            
+            return image
 
-        elif mode == None:
-            pass
+        elif mode == 'ansi':
+            # Tabular representation of bids
+            return tabulate(
+                self.bidding_matrix, 
+                headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
+                tablefmt='fancy_grid'
+            )
 
         else:
-            raise ValueError(f"Unsupported render mode: {mode}. Choose from 'verbose', 'bids' or 'plot'.")
-
+            raise ValueError(f"Unsupported render mode: {mode}. Choose from None, 'human', 'rgb_array', or 'ansi'.")
+        
     def close(self):
         if self.fig is not None:
             plt.close(self.fig)
