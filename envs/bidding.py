@@ -25,7 +25,7 @@ class BiddingEnv(gym.Env):
             self.type = np.random.choice([0, 1, 2]) # corresponding to ('humanbot', 'navbot', 'embedbot')
 
         def __str__(self):
-            robot_type = ['humanbot', 'navbot', 'embedbot']
+            robot_type = ['A-humanbot', 'B-navbot', 'C-embedbot']
             return f"Robot at ({self.x}, {self.y}) with type {robot_type[self.type]}"
 
     class Task:
@@ -36,7 +36,7 @@ class BiddingEnv(gym.Env):
             self.type = np.random.choice([0, 1, 2]) # corresponding to ('manipulation', 'transport', 'specialty')
 
         def __str__(self):
-            task_type = ['manipulation', 'transport', 'specialty']
+            task_type = ['A-manipulation', 'B-transport', 'C-specialty']
             return f"Task at ({self.x}, {self.y}) with prize {self.prize} and type {task_type[self.type]}"
 
 
@@ -56,21 +56,31 @@ class BiddingEnv(gym.Env):
         self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int8)
 
         self.current_step = 0
-        self.max_step = 10
+        self.max_step = 1
 
         self.final_multiplier = 100
 
         self.render_mode = render_mode
 
-        # action space is discrete between 0 and 10 for each robot
+        # action space is discrete bidding matrix where bids are int [0, 10]
         self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
+            low=0,
+            high=10,
             shape=(self.n_robots, self.n_tasks),
-            dtype=np.float32
+            dtype=np.int32
         )
 
-        # observation space is a dictionary of dictionaries, where each dictionary has two keys: self_state and bidding_matrix
+        # observation space has robots and tasks
+        self.observation_space = spaces.Dict({
+            "robot_positions": spaces.Box(low=0, high=self.grid_size[0]-1, shape=(self.n_robots, 2), dtype=np.int32),
+            "robot_types": spaces.Box(low=0, high=2, shape=(self.n_robots,), dtype=np.int32),
+            "task_positions": spaces.Box(low=0, high=self.grid_size[0]-1, shape=(self.n_tasks, 2), dtype=np.int32),
+            "task_prizes": spaces.Box(low=1, high=100, shape=(self.n_tasks,), dtype=np.int32),
+            "task_types": spaces.Box(low=0, high=2, shape=(self.n_tasks,), dtype=np.int32)
+        })
+        
+        '''
+        OLD OBSERVATION SPACE
         observation_space_dict = {}
 
         for i in range(self.n_robots):
@@ -88,6 +98,7 @@ class BiddingEnv(gym.Env):
 
         # Assign the observation space
         self.observation_space = spaces.Dict(observation_space_dict)
+        '''
 
     def get_cost(self, robot, task):
         distance = np.linalg.norm(np.array([robot.x, robot.y]) - np.array([task.x, task.y]))
@@ -97,28 +108,24 @@ class BiddingEnv(gym.Env):
         # 14 * 0.5 * (1.6) = 9.5
     
     def observe(self):
-        observation = {}
+        robot_positions = np.array([[robot.x, robot.y] for robot in self.robots], dtype=np.int32)
+        robot_types = np.array([robot.type for robot in self.robots], dtype=np.int32)
+        task_positions = np.array([[task.x, task.y] for task in self.tasks], dtype=np.int32)
+        task_prizes = np.array([task.prize for task in self.tasks], dtype=np.int32)
+        task_types = np.array([task.type for task in self.tasks], dtype=np.int32)
 
-        for i, robot in enumerate(self.robots):
-            # Add self_state for the robot
-            observation[f"robot_{i}_self_state"] = np.array([
-                robot.x,   # Existing x-coordinate
-                robot.y,   # Existing y-coordinate
-                robot.type # Existing type
-            ], dtype=np.float32)
+        return {
+            "robot_positions": robot_positions,
+            "robot_types": robot_types,
+            "task_positions": task_positions,
+            "task_prizes": task_prizes,
+            "task_types": task_types
+        }
 
-            # Add bidding_matrix for the robot
-            observation[f"robot_{i}_bidding_matrix"] = self.bidding_matrix.astype(np.float32)
-
-        return observation
 
     def step(self, action):
-        # Scale action from [-1, 1] to [0, 10]
-        scaled_action = (action + 1) * 5  # Maps normalized range [-1, 1] to [0, 10]
-        self.bidding_matrix = scaled_action
-
-        # Get updated observation
-        observation = self.observe()
+        
+        self.bidding_matrix = action
 
         # Increment step count
         self.current_step += 1
@@ -139,11 +146,13 @@ class BiddingEnv(gym.Env):
                 # reward += E[0, 100] - 9.5
 
         # Scale reward based on progress
-        total_possible_reward = len(self.tasks) * self.max_step
+        total_possible_reward = len(self.tasks) * len(self.robots)
         if not done:
             reward /= total_possible_reward
         else:
             reward = self.final_multiplier * reward / total_possible_reward
+
+        observation = self.observe()
 
         # Additional info dictionary (can be expanded as needed)
         info = {}
@@ -165,7 +174,7 @@ class BiddingEnv(gym.Env):
         self.tasks = [self.Task(self.grid_size) for _ in range(self.n_tasks)]
 
         # Reset the bidding matrix
-        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.float32)
+        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int32)
 
         # Reset step counter
         self.current_step = 0
@@ -190,6 +199,16 @@ class BiddingEnv(gym.Env):
             return
 
         if mode == 'human':
+            print(
+                tabulate(
+                    self.bidding_matrix, 
+                    headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
+                    tablefmt='fancy_grid'
+                )
+            )
+            return None
+        
+        elif mode == 'human_verbose':
             # Verbose text output
             print(f"Step: {self.current_step}")
             print("\nRobots:")
@@ -266,3 +285,23 @@ class BiddingEnv(gym.Env):
             self.fig = None
             self.ax = None
 
+    def optimal_reward(self):
+
+        optimal_reward = 0
+
+        for task in self.tasks:
+
+            min_cost = float('inf')
+
+            for robot in self.robots:
+            
+                cost = self.get_cost(robot, task)
+
+                if cost < min_cost:
+                    min_cost = cost
+
+            optimal_reward += task.prize - min_cost
+
+        optimal_reward = self.final_multiplier * optimal_reward / (len(self.tasks) * len(self.robots))
+
+        return optimal_reward
