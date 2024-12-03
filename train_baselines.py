@@ -1,9 +1,12 @@
 import os
 import torch as th
-from stable_baselines3 import PPO, SAC, TD3
+
+from stable_baselines3 import PPO, SAC, TD3, DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
+from stable_baselines3.common.evaluation import evaluate_policy
+
 from envs.bidding import BiddingEnv  # Assuming this is your custom environment
 
 # Create the environment
@@ -44,6 +47,14 @@ elif algo == "PPO":
         tensorboard_log=log_dir,
         device="auto",
     )
+elif algo == "DQN":
+    model = DQN(
+        "MultiInputPolicy",  # Use MultiInputPolicy for Dict observation spaces
+        vec_env,
+        verbose=1,
+        tensorboard_log=log_dir,
+        device="auto",
+    )
 else:
     raise ValueError(f"Unsupported algorithm: {algo}")
 
@@ -67,7 +78,7 @@ checkpoint_callback = CheckpointCallback(
 
 # Train the model
 model.learn(
-    total_timesteps=int(1e6),  # 1M steps
+    total_timesteps=int(1e5),  #  steps
     callback=[eval_callback, checkpoint_callback]
 )
 
@@ -75,7 +86,7 @@ model.learn(
 model.save(os.path.join(log_dir, f"{algo}_final_model"))
 
 # Evaluate the model
-mean_reward, std_reward = eval_env.get_attr("env")[0].evaluate_policy(model, n_eval_episodes=10)
+mean_reward, std_reward = evaluate_policy(model, eval_env, n_eval_episodes=10)
 print(f"Mean reward: {mean_reward}, Std reward: {std_reward}")
 
 # Close environments

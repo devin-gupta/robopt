@@ -17,6 +17,7 @@ from IPython.display import clear_output
 
 class BiddingEnv(gym.Env):
 
+    # define robot and tasks objects
     class Robot: 
         def __init__(self, grid_size):
             # Random x, y position within grid boundaries
@@ -32,7 +33,7 @@ class BiddingEnv(gym.Env):
         def __init__(self, grid_size):
             self.x = np.random.randint(0, grid_size[0])
             self.y = np.random.randint(0, grid_size[1])
-            self.prize = np.random.randint(1, 100)
+            self.prize = np.random.randint(10, 20) # prize is awarded for task completion
             self.type = np.random.choice([0, 1, 2]) # corresponding to ('manipulation', 'transport', 'specialty')
 
         def __str__(self):
@@ -73,72 +74,86 @@ class BiddingEnv(gym.Env):
         # observation space has robots and tasks
         self.observation_space = spaces.Dict({
             "robot_positions": spaces.Box(low=0, high=self.grid_size[0]-1, shape=(self.n_robots, 2), dtype=np.int32),
-            "robot_types": spaces.Box(low=0, high=2, shape=(self.n_robots,), dtype=np.int32),
+            # "robot_types": spaces.Box(low=0, high=2, shape=(self.n_robots,), dtype=np.int32),
             "task_positions": spaces.Box(low=0, high=self.grid_size[0]-1, shape=(self.n_tasks, 2), dtype=np.int32),
             "task_prizes": spaces.Box(low=1, high=100, shape=(self.n_tasks,), dtype=np.int32),
-            "task_types": spaces.Box(low=0, high=2, shape=(self.n_tasks,), dtype=np.int32)
+            # "task_types": spaces.Box(low=0, high=2, shape=(self.n_tasks,), dtype=np.int32)
         })
-        
-        '''
-        OLD OBSERVATION SPACE
-        observation_space_dict = {}
-
-        for i in range(self.n_robots):
-            observation_space_dict[f"robot_{i}_self_state"] = spaces.Box(
-                low=np.array([0, 0, 0], dtype=np.float32),
-                high=np.array([self.grid_size[0], self.grid_size[1], 2], dtype=np.float32),
-                dtype=np.float32
-            )
-            observation_space_dict[f"robot_{i}_bidding_matrix"] = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(self.n_robots, self.n_tasks),
-                dtype=np.float32
-            )
-
-        # Assign the observation space
-        self.observation_space = spaces.Dict(observation_space_dict)
-        '''
-
-    def get_cost(self, robot, task):
-        distance = np.linalg.norm(np.array([robot.x, robot.y]) - np.array([task.x, task.y]))
-        type_match = 0 if round(robot.type) == round(task.type) else 1
-        return distance * 0.5 * (1 + type_match)
-        # distance (max of 17.1, min of 0) * 0.5 * 33% * (1) + 66% (2)
-        # 14 * 0.5 * (1.6) = 9.5
     
-    def observe(self):
+    def observe(self) -> dict:
+        """
+        Returns the current state of the environment as a dictionary.
+        
+        The dictionary contains the following keys:
+        
+        - "robot_positions": A 2D numpy array of shape (n_robots, 2) containing the x and y coordinates of each robot.
+        - "robot_types": A 1D numpy array of length n_robots containing the type of each robot.
+        - "task_positions": A 2D numpy array of shape (n_tasks, 2) containing the x and y coordinates of each task.
+        - "task_prizes": A 1D numpy array of length n_tasks containing the prize of each task.
+        - "task_types": A 1D numpy array of length n_tasks containing the type of each task.
+        
+        :return (dict): The current state of the environment
+        """
+       
         robot_positions = np.array([[robot.x, robot.y] for robot in self.robots], dtype=np.int32)
-        robot_types = np.array([robot.type for robot in self.robots], dtype=np.int32)
+        # robot_types = np.array([robot.type for robot in self.robots], dtype=np.int32)
         task_positions = np.array([[task.x, task.y] for task in self.tasks], dtype=np.int32)
         task_prizes = np.array([task.prize for task in self.tasks], dtype=np.int32)
-        task_types = np.array([task.type for task in self.tasks], dtype=np.int32)
+        # task_types = np.array([task.type for task in self.tasks], dtype=np.int32)
 
         return {
             "robot_positions": robot_positions,
-            "robot_types": robot_types,
+            # "robot_types": robot_types,
             "task_positions": task_positions,
             "task_prizes": task_prizes,
-            "task_types": task_types
+            # "task_types": task_types
         }
 
-
-    def step(self, action):
-
-        assert action.shape == (self.n_robots, self.n_tasks), f"Invalid action shape: {action.shape}"
-        assert self.action_space.contains(action), f"Invalid action: {action}"
+    def get_cost(self, robot, task) -> float:
+        """
+        Helper Function for Step Function
+        Calculates the cost of assigning a robot to a task based on the euclidean distance and type match between the two.
         
-        print('bidding matrix shape', self.bidding_matrix.shape, ' and action shape ', action.shape)
+        :param robot (robot): The robot to assign to a task
+        :param task (task): The task to assign the robot to
+        :return (float): The cost of assigning the robot to the task
+        """
+        distance = np.linalg.norm(np.array([robot.x, robot.y]) - np.array([task.x, task.y])) # euclidean distance on grid between robot and task
+        # type_match = 0 if round(robot.type) == round(task.type) else 1 # 0 if types match, 1 if they don't
+        # return distance * 0.5 * (1 + type_match) # half the distance if types match
+        return distance
 
+
+    def step(self, action) -> tuple:
+
+        """
+        Take a step in the environment with the given action.
+        
+        :param action (numpy array): The bidding matrix of shape (n_robots, n_tasks) where bids are int [0, 10].
+        :return (tuple):
+            - observation (dict): The current state of the environment, with the same structure as the observation space.
+            - reward (float): The reward for the current step, calculated as the total prize of the tasks assigned to robots minus the cost of assignment.
+            - done (bool): Whether the episode is done.
+            - truncated (bool): Whether the episode was truncated (not used in this environment).
+            - info (dict): Additional information about the current step (empty in this environment).
+        """
+        action = np.round(action).astype(np.int32) # round action to nearest int
+
+        # assertion checks
+        assert action.shape == (self.n_robots, self.n_tasks), f"Invalid action shape: {action.shape}"
+        assert self.action_space.contains(action), f"Invalid action: {action} and type is {type(action)} w {type(action[0][0])}"
+        
         self.bidding_matrix = action
-
-        assert self.bidding_matrix.shape == (self.n_robots, self.n_tasks), f"Invalid action shape: {self.bidding_matrix.shape}"
 
         # Increment step count
         self.current_step += 1
         done = self.current_step >= self.max_step
 
         # Calculate reward
+        '''
+        Find the robot that bid the highest for each task and assign it to that task.
+        Calculate the reward as the sum of the prizes of the tasks assigned to robots minus the cost of completing assignment.
+        '''
         reward = 0
         for task_index, task in enumerate(self.tasks):
             max_bid = 0
@@ -150,11 +165,8 @@ class BiddingEnv(gym.Env):
 
             if max_bid_robot_index is not None:
                 reward += task.prize - self.get_cost(self.robots[max_bid_robot_index], task)
-                # reward += E[0, 100] - 9.5
 
         # Scale reward based on progress
-        total_possible_reward = len(self.tasks) # reward is per task
-
         reward = reward / (len(self.tasks) * self.optimal_reward())
         
         '''
@@ -175,9 +187,10 @@ class BiddingEnv(gym.Env):
         return observation, reward, done, truncated, info
 
 
-    def reset(self, seed=1, options=None):
+    def reset(self, seed=None, options=None):
         # Seed the environment for reproducibility
         if seed is not None:
+            print('SEED IS NOT NONE')
             super().reset(seed=seed)  # Ensures compatibility with Gym's seeding
             np.random.seed(seed)
 
@@ -231,14 +244,14 @@ class BiddingEnv(gym.Env):
             print("\nTasks:")
             for i, task in enumerate(self.tasks):
                 print(f"  Task {i + 1}: {task}")
-            print("\nBidding Matrix:")
-            print(
-                tabulate(
-                    self.bidding_matrix, 
-                    headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
-                    tablefmt='fancy_grid'
-                )
-            )
+            # print("\nBidding Matrix:")
+            # print(
+            #     tabulate(
+            #         self.bidding_matrix, 
+            #         headers=[f"Task {i+1}" for i in range(self.n_tasks)], 
+            #         tablefmt='fancy_grid'
+            #     )
+            # )
             print("\n")
             return None
 
@@ -300,6 +313,8 @@ class BiddingEnv(gym.Env):
             self.fig = None
             self.ax = None
 
+
+    # Debugging Functions
     def optimal_reward(self):
 
         optimal_reward = 0
@@ -320,3 +335,33 @@ class BiddingEnv(gym.Env):
         optimal_reward = optimal_reward / (len(self.tasks))
 
         return optimal_reward
+    
+    def evaluate_action(self, action):
+        # find average distance between winning robot and assigned task
+
+        action = np.round(action).astype(np.int32) # round action to nearest int
+
+        avg_dist = 0
+        # type_matches = 0
+
+        for task_index, task in enumerate(self.tasks):
+            max_bid = 0
+            max_bid_robot_index = None
+            for robot_index in range(self.n_robots):
+                if action[robot_index, task_index] > max_bid:
+                    max_bid = action[robot_index, task_index]
+                    max_bid_robot_index = robot_index
+
+            if max_bid_robot_index is not None:
+                avg_dist += np.linalg.norm(
+                    np.array([self.robots[max_bid_robot_index].x, self.robots[max_bid_robot_index].y]) - np.array([task.x, task.y])
+                )
+                # if self.robots[max_bid_robot_index].type == task.type:
+                #     type_matches += 1
+        
+        average_distance = avg_dist / len(self.tasks)
+        # average_type_matches = type_matches / len(self.tasks)
+
+        return average_distance
+
+    
