@@ -19,7 +19,7 @@ vec_env = DummyVecEnv([lambda: env])  # Single process
 vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True)
 
 # Choose an algorithm
-algo = "TD3"  # Choose from 'SAC', 'TD3', or 'PPO'
+algo = "SAC"  # Choose from 'SAC', 'TD3', or 'PPO'
 if algo == "SAC":
     model = SAC(
         "MultiInputPolicy",  # Use MultiInputPolicy for Dict observation spaces

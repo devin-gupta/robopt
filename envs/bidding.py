@@ -53,7 +53,7 @@ class BiddingEnv(gym.Env):
         self.robots = [self.Robot(self.grid_size) for _ in range(self.n_robots)]
         self.tasks = [self.Task(self.grid_size) for _ in range(self.n_tasks)]
 
-        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int8)
+        self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int32)
 
         self.current_step = 0
         self.max_step = 1
@@ -124,8 +124,15 @@ class BiddingEnv(gym.Env):
 
 
     def step(self, action):
+
+        assert action.shape == (self.n_robots, self.n_tasks), f"Invalid action shape: {action.shape}"
+        assert self.action_space.contains(action), f"Invalid action: {action}"
         
+        print('bidding matrix shape', self.bidding_matrix.shape, ' and action shape ', action.shape)
+
         self.bidding_matrix = action
+
+        assert self.bidding_matrix.shape == (self.n_robots, self.n_tasks), f"Invalid action shape: {self.bidding_matrix.shape}"
 
         # Increment step count
         self.current_step += 1
@@ -146,11 +153,16 @@ class BiddingEnv(gym.Env):
                 # reward += E[0, 100] - 9.5
 
         # Scale reward based on progress
-        total_possible_reward = len(self.tasks) * len(self.robots)
+        total_possible_reward = len(self.tasks) # reward is per task
+
+        reward = reward / (len(self.tasks) * self.optimal_reward())
+        
+        '''
         if not done:
             reward /= total_possible_reward
         else:
             reward = self.final_multiplier * reward / total_possible_reward
+        '''
 
         observation = self.observe()
 
@@ -163,7 +175,7 @@ class BiddingEnv(gym.Env):
         return observation, reward, done, truncated, info
 
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=1, options=None):
         # Seed the environment for reproducibility
         if seed is not None:
             super().reset(seed=seed)  # Ensures compatibility with Gym's seeding
@@ -175,6 +187,7 @@ class BiddingEnv(gym.Env):
 
         # Reset the bidding matrix
         self.bidding_matrix = np.zeros((self.n_robots, self.n_tasks), dtype=np.int32)
+        assert type(self.bidding_matrix[0, 0]) == np.int32, f"Invalid bidding matrix type: {type(self.bidding_matrix[0, 0])}"
 
         # Reset step counter
         self.current_step = 0
@@ -206,6 +219,7 @@ class BiddingEnv(gym.Env):
                     tablefmt='fancy_grid'
                 )
             )
+            print("\n")
             return None
         
         elif mode == 'human_verbose':
@@ -225,6 +239,7 @@ class BiddingEnv(gym.Env):
                     tablefmt='fancy_grid'
                 )
             )
+            print("\n")
             return None
 
         elif mode == 'rgb_array':
@@ -259,7 +274,7 @@ class BiddingEnv(gym.Env):
 
             # Convert plot to RGB array
             self.fig.canvas.draw()
-            image = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype='uint8')
+            image = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype='uint32')
             image = image.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
             
             plt.close(self.fig)  # Close the figure to free up memory
@@ -302,6 +317,6 @@ class BiddingEnv(gym.Env):
 
             optimal_reward += task.prize - min_cost
 
-        optimal_reward = self.final_multiplier * optimal_reward / (len(self.tasks) * len(self.robots))
+        optimal_reward = optimal_reward / (len(self.tasks))
 
         return optimal_reward
