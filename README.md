@@ -10,9 +10,7 @@ A single illustrative example is the user-prompt ’clean the kitchen’, over a
 
 Here we offer a novel framework for task distribution in multi-agent systems using bidding mechanisms. Borrowing on existing game theory literature, bidding mechanisms provide guarantees on utility and adversarial behavior dependent on market structure \cite{7}. In this work, we utilize an instantaneous first-price auction with $B$ bidders and $T$ tasks and consider constraints such as distance $D(B_i, T_j) = d_{ij}$ and type match $M(B_i, T_j) = I(B_i, T_j) = m_{ij}$. A more general problem statement might include additional binary or variable constraints: task time to complete, 'energy' consumption, internet access, etc. We also exclude considerations of sequential task completion, hence assume $B > T$ and time for each task is equal, $\text{time}(T) = t$.
 
-```
-![Task Allocation](https://github.com/devin-gupta/robopt/blob/main/image.jpg?raw=true)
-```
+<img width="920" alt="Task_Allocation" src="https://github.com/user-attachments/assets/16e5da56-b633-4e07-9538-cce0b1e6a697">
 
 ### Navigating Repo
 
