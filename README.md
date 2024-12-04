@@ -13,6 +13,7 @@ Here we offer a novel framework for task distribution in multi-agent systems usi
 <div class="image-container">
   <img width="75%" alt="Task_Allocation" src="https://github.com/user-attachments/assets/16e5da56-b633-4e07-9538-cce0b1e6a697">
 </div>
+
 ### Navigating Repo
 
 To get started, feel free to enter notebook 'purchasing_v1.ipynb'. For each case I consider, I clearly label 3-4 cells that should clearly document my work.
